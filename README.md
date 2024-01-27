@@ -1,7 +1,5 @@
 # walk
 
-Walk utility inspired by Plan 9 / 9front's walk(1) command.
-
 Walk is a lightweight alternative to the find(1) command, it's main
 purpose is to walk directories recursively and print the name of
 each line on a separate line.
