@@ -111,10 +111,10 @@ func traverse(path string, info fs.FileInfo, err error) error {
 		return err
 	}
 	var depth int = strings.Count(path, string(os.PathSeparator))
-	if maxDepth > 0 && depth > rootDepth+maxDepth {
+	if maxDepth > 0 && depth-rootDepth > maxDepth {
 		return nil
 	}
-	if minDepth > 0 && depth < rootDepth+minDepth {
+	if minDepth > 0 && depth-rootDepth < minDepth {
 		return nil
 	}
 	if info.IsDir() && *fileFlag {
@@ -148,6 +148,9 @@ func main() {
 			arg = strings.TrimSuffix(arg, string(os.PathSeparator))
 		}
 		rootDepth = strings.Count(arg, string(os.PathSeparator))
+		if rootDepth < 1 {
+			rootDepth = -1
+		}
 		err := filepath.Walk(arg, traverse)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
