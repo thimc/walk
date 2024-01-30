@@ -87,14 +87,18 @@ func print(path string, info fs.FileInfo) error {
 	if command != "" {
 		var s scanner.Scanner
 		s.Init(strings.NewReader(command))
-		s.Mode = scanner.ScanStrings
+		s.Mode = scanner.ScanChars
 		s.Whitespace ^= scanner.GoWhitespace
 		var sb strings.Builder
 		for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
+			if tok == '\\' && s.Peek() == '%' {
+				tok = s.Scan()
+			}
 			sb.WriteRune(tok)
 			if tok != '\\' && s.Peek() == '%' {
 				tok = s.Scan()
 				sb.WriteString(path)
+				continue
 			}
 		}
 		output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
