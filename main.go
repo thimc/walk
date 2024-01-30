@@ -84,7 +84,6 @@ func print(path string, info fs.FileInfo) error {
 			sb.WriteByte(' ')
 		}
 	}
-	fmt.Println(sb.String())
 	if command != "" {
 		var s scanner.Scanner
 		s.Init(strings.NewReader(command))
@@ -104,7 +103,9 @@ func print(path string, info fs.FileInfo) error {
 		} else {
 			fmt.Print(string(output))
 		}
+		return nil
 	}
+	fmt.Println(sb.String())
 	return nil
 }
 
