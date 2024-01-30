@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,7 @@ var (
 	rootDepth int
 	minDepth  int
 	maxDepth  int
+	command   string
 )
 
 func print(path string, info fs.FileInfo) error {
@@ -83,6 +85,26 @@ func print(path string, info fs.FileInfo) error {
 		}
 	}
 	fmt.Println(sb.String())
+	if command != "" {
+		var s scanner.Scanner
+		s.Init(strings.NewReader(command))
+		s.Mode = scanner.ScanStrings
+		s.Whitespace ^= scanner.GoWhitespace
+		var sb strings.Builder
+		for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
+			sb.WriteRune(tok)
+			if tok != '\\' && s.Peek() == '%' {
+				tok = s.Scan()
+				sb.WriteString(path)
+			}
+		}
+		output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		} else {
+			fmt.Print(string(output))
+		}
+	}
 	return nil
 }
 
@@ -132,16 +154,26 @@ func traverse(path string, info fs.FileInfo, err error) error {
 func main() {
 	minDepth = -1
 	maxDepth = -1
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [-dftxu] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s [-dftxu] [-n min,max] [-s \"cmd\"] [-e \"fmt\"] ... \n", os.Args[0])
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(1)
 	}
 	if err := parseRange(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
 		os.Exit(1)
+	}
+	for n, arg := range args {
+		if arg == "!" {
+			command = strings.Join(args[n+1:], " ")
+			args = args[:n]
+			break
+		}
 	}
 	for _, arg := range args {
 		if strings.HasSuffix(arg, string(os.PathSeparator)) && len(arg) > 1 {
