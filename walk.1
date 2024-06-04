@@ -1,0 +1,92 @@
+.TH WALK 1 walk
+.SH NAME
+walk \- walk a directory hierachy
+.SH SYNOPSIS
+.Nm walk
+[\-dfx] [\-n min,max] [\-\-e
+.B "fmt"
+] ... [! cmd]
+.SH DESCRIPTION
+walk descends a file path and prints files and directories and
+optionally runs a command on them. The output format is customizable
+and can be used as a lightweight
+.BR find (1)
+replacement.
+.SH OPTIONS
+.TP
+.B \-d
+Print only directories.
+.TP
+.B \-f
+Print only non-directories.
+.TP
+.B \-x
+Print only if the executable bit is set.
+.TP
+.B \-n range
+Sets the inclusive range for depth filtering. The expected format
+is
+.I min,max
+where
+.B min
+or
+.B max
+are numbers
+and both are optional.
+.TP
+.B \-e string
+Specifies the output format. The following characters are accepted:
+.RS
+.IP U
+Owner name (uid)
+.IP G
+Group name (gid)
+.IP M
+Name of the last user to modify the file
+.IP a
+Last access time
+.IP m
+Last modification time
+.IP n
+Final path element (name)
+.IP p
+Path
+.IP s
+Size (bytes)
+.IP x
+Permissions (default "p")
+.RE
+.TP
+.B "! command"
+Run
+.B command
+on each file or directory that matches the pattern.
+.SH EXAMPLES
+.TP
+List all files and directories in the current working directory:
+.sp 1
+.RS
+walk .
+.RE
+.TP
+List only directories in the current directory:
+.sp 1
+.RS
+walk -d .
+.RE
+.TP
+List files with their sizes and permissions:
+.sp 1
+.RS
+walk -e "nsx" .
+.RE
+.TP
+List all files that end with .go and pipe them to ls(1):
+.sp 1
+.RS
+walk *.go !ls -l
+.RE
+.SH SEE ALSO
+.BR find (1)
+.RS
+.RE
