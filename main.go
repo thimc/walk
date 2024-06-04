@@ -160,7 +160,7 @@ func main() {
 	minDepth = -1
 	maxDepth = -1
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [-dftxu] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
