@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -23,18 +22,68 @@ var (
 	rangeFlag   = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.")
 	statfmtFlag = flag.String("e", "p", "Specifies the output format.\nThe following characters are accepted:\nU\tOwner name (uid)\nG\tGroup name (gid)\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
 
-	rootDepth int
-	minDepth  int
-	maxDepth  int
-	command   string
+	depth    int
+	command  string
+	mindepth int = -1
+	maxdepth int = -1
 )
 
-func print(path string, info fs.FileInfo) error {
-	var sb strings.Builder
-	var s scanner.Scanner
-	if info.Name() == "." || info.Name() == ".." {
-		return nil
+func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
+		flag.PrintDefaults()
 	}
+	flag.Parse()
+	args := flag.Args()
+	if len(args) < 1 {
+		flag.Usage()
+		os.Exit(1)
+	}
+	if err := parseRange(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		os.Exit(1)
+	}
+	for n, arg := range args {
+		if arg == "!" || strings.HasPrefix(arg, "!") {
+			command = strings.Join(args[n+1:], " ")
+			args = args[:n]
+			break
+		}
+	}
+	for _, arg := range args {
+		if strings.HasSuffix(arg, string(os.PathSeparator)) && len(arg) > 1 {
+			arg = strings.TrimSuffix(arg, string(os.PathSeparator))
+		}
+		if err := filepath.Walk(arg, func(path string, info fs.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			var (
+				depth int = strings.Count(path, string(os.PathSeparator))
+				min       = mindepth
+				max       = maxdepth
+			)
+			if min < 0 {
+				min = depth
+			}
+			if max < 0 {
+				max = depth
+			}
+			if depth < min || depth > max {
+				return nil
+			}
+			if !info.IsDir() && *dirFlag || info.IsDir() && *fileFlag {
+				return nil
+			}
+			return print(path, info)
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+		}
+	}
+}
+
+func print(path string, info fs.FileInfo) error {
+	var s scanner.Scanner
 	s.Init(strings.NewReader(*statfmtFlag))
 	s.Mode = scanner.ScanStrings
 	s.Whitespace ^= scanner.GoWhitespace
@@ -54,34 +103,32 @@ func print(path string, info fs.FileInfo) error {
 				if err == nil {
 					switch tok {
 					case 'U':
-						sb.WriteString(fmt.Sprint(user.Uid))
+						fmt.Print(user.Uid)
 					case 'G':
-						sb.WriteString(fmt.Sprint(user.Gid))
+						fmt.Print(user.Gid)
 					case 'M':
-						sb.WriteString(fmt.Sprint(user.Name))
+						fmt.Print(user.Name)
 					case 'a':
-						atime := time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec))
-						sb.WriteString(fmt.Sprint(atime))
+						fmt.Print(time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)))
 					}
 				}
 			}
-			// TODO: Handle the niche operating systems (windows, etc..)
 		case 'm':
-			sb.WriteString(fmt.Sprintf("%d", info.ModTime().Unix()))
+			fmt.Printf("%d", info.ModTime().Unix())
 		case 'n':
-			sb.WriteString(info.Name())
+			fmt.Print(info.Name())
 		case 's':
-			sb.WriteString(fmt.Sprintf("%d", info.Size()))
+			fmt.Printf("%d", info.Size())
 		case 'p':
-			sb.WriteString(path)
+			fmt.Print(path)
 		case 'x':
-			sb.WriteString(info.Mode().Perm().String())
+			fmt.Print(info.Mode().Perm().String())
 		default:
-			sb.WriteRune(tok)
+			fmt.Printf("%c", tok)
 			d = true
 		}
 		if !d {
-			sb.WriteByte(' ')
+			fmt.Print(" ")
 		}
 	}
 	if command != "" {
@@ -109,88 +156,42 @@ func print(path string, info fs.FileInfo) error {
 		}
 		return nil
 	}
-	fmt.Println(sb.String())
+	fmt.Print("\n")
 	return nil
 }
 
 func parseRange() error {
-	if *rangeFlag != "" {
-		parts := strings.Split(*rangeFlag, ",")
-		var err error
-		if len(parts) > 0 && parts[0] != "" {
-			minDepth, err = strconv.Atoi(parts[0])
+	var (
+		err   error
+		r     = *rangeFlag
+		parts = strings.Split(r, ",")
+	)
+	if r != "" {
+		if len(parts) < 1 {
+			maxdepth, err = strconv.Atoi(r)
 			if err != nil {
-				return errors.New(fmt.Sprintf("invalid min range number: '%s'\n", parts[0]))
+				return err
 			}
+			return nil
 		}
-		if len(parts) > 1 && parts[1] != "" {
-			maxDepth, err = strconv.Atoi(parts[1])
+		if len(parts) > 2 {
+			return fmt.Errorf("invalid r: %s. expected min,max", r)
+		}
+		for i, part := range parts {
+			n, err := strconv.Atoi(part)
 			if err != nil {
-				return errors.New(fmt.Sprintf("invalid max range number: '%s'\n", parts[1]))
+				if part == "" {
+					n = -1
+				} else {
+					return err
+				}
+			}
+			if i == 0 {
+				mindepth = n
+			} else {
+				maxdepth = n
 			}
 		}
 	}
 	return nil
-}
-
-func traverse(path string, info fs.FileInfo, err error) error {
-	if err != nil {
-		return err
-	}
-	var depth int = strings.Count(path, string(os.PathSeparator))
-	if maxDepth > 0 && depth-rootDepth > maxDepth {
-		return nil
-	}
-	if minDepth > 0 && depth-rootDepth < minDepth {
-		return nil
-	}
-	if info.IsDir() && *fileFlag {
-		return nil
-	}
-	if !info.IsDir() && *dirFlag {
-		return nil
-	}
-	if *exeFlag && info.Mode().Perm()&0111 == 0 {
-		return nil
-	}
-	return print(path, info)
-}
-
-func main() {
-	minDepth = -1
-	maxDepth = -1
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-	args := flag.Args()
-	if len(args) < 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
-	if err := parseRange(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-		os.Exit(1)
-	}
-	for n, arg := range args {
-		if arg == "!" {
-			command = strings.Join(args[n+1:], " ")
-			args = args[:n]
-			break
-		}
-	}
-	for _, arg := range args {
-		if strings.HasSuffix(arg, string(os.PathSeparator)) && len(arg) > 1 {
-			arg = strings.TrimSuffix(arg, string(os.PathSeparator))
-		}
-		rootDepth = strings.Count(arg, string(os.PathSeparator))
-		if rootDepth < 1 {
-			rootDepth = -1
-		}
-		err := filepath.Walk(arg, traverse)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
-		}
-	}
 }
