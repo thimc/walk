@@ -22,7 +22,7 @@ var (
 	rangeFlag   = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.")
 	statfmtFlag = flag.String("e", "p", "Specifies the output format.\nThe following characters are accepted:\nU\tOwner name (uid)\nG\tGroup name (gid)\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
 
-	depth    int
+	root     int
 	command  string
 	mindepth int = -1
 	maxdepth int = -1
@@ -54,12 +54,13 @@ func main() {
 		if strings.HasSuffix(arg, string(os.PathSeparator)) && len(arg) > 1 {
 			arg = strings.TrimSuffix(arg, string(os.PathSeparator))
 		}
+		root = strings.Count(arg, string(os.PathSeparator))
 		if err := filepath.Walk(arg, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			var (
-				depth int = strings.Count(path, string(os.PathSeparator))
+				depth int = strings.Count(path, string(os.PathSeparator)) - root
 				min       = mindepth
 				max       = maxdepth
 			)
