@@ -41,6 +41,7 @@ func main() {
 	}
 	if err := parseRange(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		flag.Usage()
 		os.Exit(1)
 	}
 	for n, arg := range args {
@@ -78,7 +79,9 @@ func main() {
 			}
 			return print(path, info)
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+			flag.Usage()
+			os.Exit(1)
 		}
 	}
 }
@@ -176,7 +179,7 @@ func parseRange() error {
 			return nil
 		}
 		if len(parts) > 2 {
-			return fmt.Errorf("invalid r: %s. expected min,max", r)
+			return fmt.Errorf("invalid range %s", r)
 		}
 		for i, part := range parts {
 			n, err := strconv.Atoi(part)
