@@ -86,7 +86,36 @@ func main() {
 	}
 }
 
+func runCmd(path string) error {
+	var s scanner.Scanner
+	s.Init(strings.NewReader(command))
+	s.Mode = scanner.ScanChars
+	s.Whitespace ^= scanner.GoWhitespace
+	var sb strings.Builder
+	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
+		if tok == '\\' && s.Peek() == '%' {
+			tok = s.Scan()
+		} else if tok != '\\' && s.Peek() == '%' {
+			tok = s.Scan()
+			tok = s.Scan()
+			sb.WriteString(path)
+			continue
+		}
+		sb.WriteRune(tok)
+	}
+	output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	} else {
+		fmt.Print(string(output))
+	}
+	return nil
+}
+
 func print(path string, info fs.FileInfo) error {
+	if command != "" {
+		return runCmd(path)
+	}
 	var s scanner.Scanner
 	s.Init(strings.NewReader(*statfmtFlag))
 	s.Mode = scanner.ScanStrings
@@ -134,31 +163,6 @@ func print(path string, info fs.FileInfo) error {
 		if !d {
 			fmt.Print(" ")
 		}
-	}
-	if command != "" {
-		var s scanner.Scanner
-		s.Init(strings.NewReader(command))
-		s.Mode = scanner.ScanChars
-		s.Whitespace ^= scanner.GoWhitespace
-		var sb strings.Builder
-		for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
-			if tok == '\\' && s.Peek() == '%' {
-				tok = s.Scan()
-			}
-			sb.WriteRune(tok)
-			if tok != '\\' && s.Peek() == '%' {
-				tok = s.Scan()
-				sb.WriteString(path)
-				continue
-			}
-		}
-		output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		} else {
-			fmt.Print(string(output))
-		}
-		return nil
 	}
 	fmt.Print("\n")
 	return nil
