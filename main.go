@@ -120,9 +120,7 @@ func print(path string, info fs.FileInfo) error {
 	s.Init(strings.NewReader(*statfmtFlag))
 	s.Mode = scanner.ScanStrings
 	s.Whitespace ^= scanner.GoWhitespace
-	var d bool
 	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
-		d = false
 		switch tok {
 		case 'U':
 			fallthrough
@@ -133,17 +131,18 @@ func print(path string, info fs.FileInfo) error {
 		case 'a':
 			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 				user, err := user.LookupId(fmt.Sprint(stat.Uid))
-				if err == nil {
-					switch tok {
-					case 'U':
-						fmt.Print(user.Uid)
-					case 'G':
-						fmt.Print(user.Gid)
-					case 'M':
-						fmt.Print(user.Name)
-					case 'a':
-						fmt.Print(time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)))
-					}
+				if err != nil {
+					return err
+				}
+				switch tok {
+				case 'U':
+					fmt.Print(user.Uid)
+				case 'G':
+					fmt.Print(user.Gid)
+				case 'M':
+					fmt.Print(user.Name)
+				case 'a':
+					fmt.Printf("%d", time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)).Unix())
 				}
 			}
 		case 'm':
@@ -153,14 +152,13 @@ func print(path string, info fs.FileInfo) error {
 		case 's':
 			fmt.Printf("%d", info.Size())
 		case 'p':
-			fmt.Print(path)
+			fmt.Printf("%s", path)
 		case 'x':
 			fmt.Print(info.Mode().Perm().String())
 		default:
 			fmt.Printf("%c", tok)
-			d = true
 		}
-		if !d {
+		if s.Peek() != scanner.EOF {
 			fmt.Print(" ")
 		}
 	}
