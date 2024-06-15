@@ -1,3 +1,4 @@
+// Command walk implements the walk command from Plan 9 that walks a directory hierachy.
 package main
 
 import (
@@ -22,8 +23,7 @@ var (
 	rangeFlag   = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.")
 	statfmtFlag = flag.String("e", "p", "Specifies the output format.\nThe following characters are accepted:\nU\tOwner name (uid)\nG\tGroup name (gid)\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
 
-	root     int
-	command  string
+	cmd      string
 	mindepth int = -1
 	maxdepth int = -1
 )
@@ -46,7 +46,7 @@ func main() {
 	}
 	for n, arg := range args {
 		if arg == "!" || strings.HasPrefix(arg, "!") {
-			command = strings.Join(args[n+1:], " ")
+			cmd = strings.Join(args[n+1:], " ")
 			args = args[:n]
 			break
 		}
@@ -55,13 +55,13 @@ func main() {
 		if strings.HasSuffix(arg, string(os.PathSeparator)) && len(arg) > 1 {
 			arg = strings.TrimSuffix(arg, string(os.PathSeparator))
 		}
-		root = strings.Count(arg, string(os.PathSeparator))
+		rootdepth := strings.Count(arg, string(os.PathSeparator))
 		if err := filepath.Walk(arg, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			var (
-				depth int = strings.Count(path, string(os.PathSeparator)) - root
+				depth int = strings.Count(path, string(os.PathSeparator)) - rootdepth
 				min       = mindepth
 				max       = maxdepth
 			)
@@ -77,7 +77,7 @@ func main() {
 			if !info.IsDir() && *dirFlag || info.IsDir() && *fileFlag {
 				return nil
 			}
-			return print(path, info)
+			return printPath(path, info)
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
 			flag.Usage()
@@ -86,34 +86,9 @@ func main() {
 	}
 }
 
-func runCmd(path string) error {
-	var s scanner.Scanner
-	s.Init(strings.NewReader(command))
-	s.Mode = scanner.ScanChars
-	s.Whitespace ^= scanner.GoWhitespace
-	var sb strings.Builder
-	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
-		if tok == '\\' && s.Peek() == '%' {
-			tok = s.Scan()
-		} else if tok != '\\' && s.Peek() == '%' {
-			tok = s.Scan()
-			tok = s.Scan()
-			sb.WriteString(path)
-			continue
-		}
-		sb.WriteRune(tok)
-	}
-	output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-	} else {
-		fmt.Print(string(output))
-	}
-	return nil
-}
-
-func print(path string, info fs.FileInfo) error {
-	if command != "" {
+// printPath prints the output in a format defined by `statfmtFlag`.
+func printPath(path string, info fs.FileInfo) error {
+	if cmd != "" {
 		return runCmd(path)
 	}
 	var s scanner.Scanner
@@ -122,13 +97,7 @@ func print(path string, info fs.FileInfo) error {
 	s.Whitespace ^= scanner.GoWhitespace
 	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
 		switch tok {
-		case 'U':
-			fallthrough
-		case 'G':
-			fallthrough
-		case 'M':
-			fallthrough
-		case 'a':
+		case 'U', 'G', 'M', 'a':
 			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 				user, err := user.LookupId(fmt.Sprint(stat.Uid))
 				if err != nil {
@@ -166,6 +135,36 @@ func print(path string, info fs.FileInfo) error {
 	return nil
 }
 
+// runCmd spawns a subshell and runs `cmd` on `path` if `cmd` is non-nil.
+func runCmd(path string) error {
+	var s scanner.Scanner
+	s.Init(strings.NewReader(cmd))
+	s.Mode = scanner.ScanChars
+	s.Whitespace ^= scanner.GoWhitespace
+	var sb strings.Builder
+	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
+		if tok == '\\' && s.Peek() == '%' {
+			tok = s.Scan()
+		} else if tok != '\\' && s.Peek() == '%' {
+			tok = s.Scan()
+			tok = s.Scan()
+			sb.WriteString(path)
+			continue
+		}
+		sb.WriteRune(tok)
+	}
+	output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	} else {
+		fmt.Print(string(output))
+	}
+	return nil
+}
+
+
+// parseRange parses the value of `rangeFlag` and sets `mindepth` and
+// `maxdepth` accordingly.
 func parseRange() error {
 	var (
 		err   error
