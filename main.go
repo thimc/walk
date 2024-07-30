@@ -146,6 +146,7 @@ func runCmd(path string) error {
 		if tok == '\\' && s.Peek() == '%' {
 			tok = s.Scan()
 		} else if tok != '\\' && s.Peek() == '%' {
+			sb.WriteRune(tok)
 			tok = s.Scan()
 			tok = s.Scan()
 			sb.WriteString(path)
@@ -161,7 +162,6 @@ func runCmd(path string) error {
 	}
 	return nil
 }
-
 
 // parseRange parses the value of `rangeFlag` and sets `mindepth` and
 // `maxdepth` accordingly.
