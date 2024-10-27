@@ -12,41 +12,44 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"text/scanner"
 	"time"
 )
 
 var (
-	dirFlag     = flag.Bool("d", false, "Print only directories.")
-	fileFlag    = flag.Bool("f", false, "Print only non-directories.")
-	exeFlag     = flag.Bool("x", false, "Print only if the executable bit is set.")
-	rangeFlag   = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.")
-	statfmtFlag = flag.String("e", "p", "Specifies the output format.\nThe following characters are accepted:\nU\tOwner name (uid)\nG\tGroup name (gid)\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
+	isdirectory = flag.Bool("d", false, "Print only directories.")
+	isfile      = flag.Bool("f", false, "Print only non-directories.")
+	executable  = flag.Bool("x", false, "Print only if the executable bit is set.")
+	rangefmt    = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.")
+	statfmt     = flag.String("e", "p", "Specifies the output format.\nThe following characters are accepted:\nU\tOwner name (uid)\nG\tGroup name (gid)\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
 
 	cmd      string
-	mindepth int = -1
-	maxdepth int = -1
+	mindepth = -1
+	maxdepth = -1
 )
 
+func usage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
+	flag.PrintDefaults()
+}
+
 func main() {
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
-		flag.PrintDefaults()
-	}
+	flag.Usage = usage
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 1 {
-		flag.Usage()
-		os.Exit(1)
+		args = []string{"."}
 	}
 	if err := parseRange(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-		flag.Usage()
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	for n, arg := range args {
 		if arg == "!" || strings.HasPrefix(arg, "!") {
-			cmd = strings.Join(args[n+1:], " ")
+			if arg == "!" {
+				cmd = strings.Join(args[n+1:], " ")
+			} else {
+				cmd = strings.Join(args[n:], " ")
+			}
 			args = args[:n]
 			break
 		}
@@ -58,7 +61,14 @@ func main() {
 		rootdepth := strings.Count(arg, string(os.PathSeparator))
 		if err := filepath.Walk(arg, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
-				return err
+				fmt.Fprintf(os.Stderr, "%s\n", err)
+				return nil
+			}
+			if !info.IsDir() && *isdirectory || info.IsDir() && *isfile {
+				return nil
+			}
+			if path == "." || path == ".." {
+				return nil
 			}
 			var (
 				depth int = strings.Count(path, string(os.PathSeparator)) - rootdepth
@@ -74,101 +84,20 @@ func main() {
 			if depth < min || depth > max {
 				return nil
 			}
-			if !info.IsDir() && *dirFlag || info.IsDir() && *fileFlag {
-				return nil
-			}
-			return printPath(path, info)
+			printPath(path, info)
+			return nil
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-			flag.Usage()
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 	}
 }
 
-// printPath prints the output in a format defined by `statfmtFlag`.
-func printPath(path string, info fs.FileInfo) error {
-	if cmd != "" {
-		return runCmd(path)
-	}
-	var s scanner.Scanner
-	s.Init(strings.NewReader(*statfmtFlag))
-	s.Mode = scanner.ScanStrings
-	s.Whitespace ^= scanner.GoWhitespace
-	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
-		switch tok {
-		case 'U', 'G', 'M', 'a':
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-				user, err := user.LookupId(fmt.Sprint(stat.Uid))
-				if err != nil {
-					return err
-				}
-				switch tok {
-				case 'U':
-					fmt.Print(user.Uid)
-				case 'G':
-					fmt.Print(user.Gid)
-				case 'M':
-					fmt.Print(user.Name)
-				case 'a':
-					fmt.Printf("%d", time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)).Unix())
-				}
-			}
-		case 'm':
-			fmt.Printf("%d", info.ModTime().Unix())
-		case 'n':
-			fmt.Print(info.Name())
-		case 's':
-			fmt.Printf("%d", info.Size())
-		case 'p':
-			fmt.Printf("%s", path)
-		case 'x':
-			fmt.Print(info.Mode().Perm().String())
-		default:
-			fmt.Printf("%c", tok)
-		}
-		if s.Peek() != scanner.EOF {
-			fmt.Print(" ")
-		}
-	}
-	fmt.Print("\n")
-	return nil
-}
-
-// runCmd spawns a subshell and runs `cmd` on `path` if `cmd` is non-nil.
-func runCmd(path string) error {
-	var s scanner.Scanner
-	s.Init(strings.NewReader(cmd))
-	s.Mode = scanner.ScanChars
-	s.Whitespace ^= scanner.GoWhitespace
-	var sb strings.Builder
-	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
-		if tok == '\\' && s.Peek() == '%' {
-			tok = s.Scan()
-		} else if tok != '\\' && s.Peek() == '%' {
-			sb.WriteRune(tok)
-			tok = s.Scan()
-			tok = s.Scan()
-			sb.WriteString(path)
-			continue
-		}
-		sb.WriteRune(tok)
-	}
-	output, err := exec.Command("/bin/sh", "-c", sb.String()).Output()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-	} else {
-		fmt.Print(string(output))
-	}
-	return nil
-}
-
-// parseRange parses the value of `rangeFlag` and sets `mindepth` and
-// `maxdepth` accordingly.
+// parseRange extracts the minimum and maximum directory depth from the [rangefmt] flag.
 func parseRange() error {
 	var (
 		err   error
-		r     = *rangeFlag
+		r     = *rangefmt
 		parts = strings.Split(r, ",")
 	)
 	if r != "" {
@@ -199,4 +128,72 @@ func parseRange() error {
 		}
 	}
 	return nil
+}
+
+func printPath(path string, info fs.FileInfo) {
+	if cmd != "" {
+		runCmd(path)
+		return
+	}
+	for i, r := range *statfmt {
+		switch r {
+		case 'U', 'G', 'M', 'a':
+			stat, ok := info.Sys().(*syscall.Stat_t)
+			if !ok {
+				continue
+			}
+			user, err := user.LookupId(fmt.Sprint(stat.Uid))
+			if err != nil {
+				continue
+			}
+			switch r {
+			case 'U':
+				fmt.Print(user.Uid)
+			case 'G':
+				fmt.Print(user.Gid)
+			case 'M':
+				fmt.Print(user.Name)
+			case 'a':
+				fmt.Print(time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)).Unix())
+			}
+		case 'm':
+			fmt.Print(info.ModTime().Unix())
+		case 'n':
+			fmt.Print(info.Name())
+		case 's':
+			fmt.Print(info.Size())
+		case 'p':
+			fmt.Print(path)
+		case 'x':
+			fmt.Print(info.Mode().Perm().String())
+		default:
+			fmt.Printf("%c", r)
+		}
+		if i+1 < len(*statfmt) {
+			fmt.Print(" ")
+		}
+	}
+	fmt.Print("\n")
+}
+
+func runCmd(path string) {
+	var sb strings.Builder
+	for i, r := range cmd {
+		switch r {
+		case '%':
+			if i >= 1 && cmd[i-1] != '\\' {
+				sb.WriteString(path)
+				continue
+			}
+			fallthrough
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	output, err := exec.Command("/bin/sh", "-c", strings.TrimPrefix(sb.String(), "!")).Output()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+	fmt.Print(string(output))
 }
