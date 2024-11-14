@@ -135,17 +135,21 @@ func printPath(path string, fi fs.FileInfo) error {
 			if !ok {
 				continue
 			}
-			user, err := user.LookupId(fmt.Sprint(stat.Uid))
+			u, err := user.LookupId(fmt.Sprint(stat.Uid))
 			if err != nil {
-				continue
+				return err
 			}
 			switch r {
 			case 'U':
-				fmt.Print(user.Uid)
+				fmt.Print(u.Username)
 			case 'G':
-				fmt.Print(user.Gid)
+				g, err := user.LookupGroupId(u.Gid)
+				if err != nil {
+					return err
+				}
+				fmt.Print(g.Name)
 			case 'M':
-				fmt.Print(user.Name)
+				fmt.Print(u.Name)
 			case 'a':
 				fmt.Print(time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)).Unix())
 			}
