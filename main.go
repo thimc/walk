@@ -19,8 +19,8 @@ var (
 	isdirectory = flag.Bool("d", false, "Print only directories.")
 	isfile      = flag.Bool("f", false, "Print only non-directories.")
 	executable  = flag.Bool("x", false, "Print only if the executable bit is set.")
-	rangefmt    = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.")
-	statfmt     = flag.String("e", "p", "Specifies the output format.\nThe following characters are accepted:\nU\tOwner name (uid)\nG\tGroup name (gid)\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
+	rangefmt    = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.\nAn argument of n with no comma is equivalent to 0,n.")
+	statfmt     = flag.String("e", "p", "Specifies the output format.\nThe attributes are automatically separated with a space.\nThe following characters are accepted:\nU\tOwner name\nG\tGroup name\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
 
 	cmd      string
 	mindepth = -1
@@ -28,7 +28,8 @@ var (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] [ name ... ] [! cmd] \n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s [ -dfx ] [ -n min,max ] [ -e \"fmt\" ] [ name ... ] [ ! cmd ]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "  !\tRun cmd in a sub shell with sh(1) for each match.\n  \tIf an unescaped %% occurs in the command list it will\n  \tbe replaced with the file name.\n")
 	flag.PrintDefaults()
 }
 
