@@ -28,7 +28,7 @@ var (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] ... [! cmd] \n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s [-dfx] [-n min,max] [-e \"fmt\"] [ name ... ] [! cmd] \n", os.Args[0])
 	flag.PrintDefaults()
 }
 
@@ -36,9 +36,6 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 	args := flag.Args()
-	if len(args) < 1 {
-		args = []string{"."}
-	}
 	if err := parseRange(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -54,38 +51,36 @@ func main() {
 			break
 		}
 	}
+	if len(args) < 1 {
+		args = []string{"."}
+	}
 	for _, arg := range args {
-		if strings.HasSuffix(arg, string(os.PathSeparator)) && len(arg) > 1 {
-			arg = strings.TrimSuffix(arg, string(os.PathSeparator))
-		}
-		rootdepth := strings.Count(arg, string(os.PathSeparator))
-		if err := filepath.Walk(arg, func(path string, info fs.FileInfo, err error) error {
+		if err := filepath.Walk(arg, func(path string, fi fs.FileInfo, err error) error {
+			if path == "." || path == ".." || !fi.IsDir() && *isdirectory || fi.IsDir() && *isfile {
+				return nil
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s\n", err)
 				return nil
 			}
-			if !info.IsDir() && *isdirectory || info.IsDir() && *isfile {
+			mind, maxd := mindepth, maxdepth
+			if maxd < mind {
+				maxd = mind
+			}
+			depth := strings.Count(path, string(os.PathSeparator)) + 1
+			if mind < 0 {
+				mind = depth
+			}
+			if maxd < 0 {
+				maxd = depth
+			}
+			if depth > maxd || depth < mind {
 				return nil
 			}
-			if path == "." || path == ".." {
-				return nil
+			if cmd != "" {
+				return runCmd(cmd, path)
 			}
-			var (
-				depth int = strings.Count(path, string(os.PathSeparator)) - rootdepth
-				min       = mindepth
-				max       = maxdepth
-			)
-			if min < 0 {
-				min = depth
-			}
-			if max < 0 {
-				max = depth
-			}
-			if depth < min || depth > max {
-				return nil
-			}
-			printPath(path, info)
-			return nil
+			return printPath(path, fi)
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -93,52 +88,45 @@ func main() {
 	}
 }
 
-// parseRange extracts the minimum and maximum directory depth from the [rangefmt] flag.
 func parseRange() error {
-	var (
-		err   error
-		r     = *rangefmt
-		parts = strings.Split(r, ",")
-	)
-	if r != "" {
-		if len(parts) < 1 {
-			maxdepth, err = strconv.Atoi(r)
-			if err != nil {
+	if *rangefmt == "" {
+		return nil
+	}
+	var parts = strings.Split(*rangefmt, ",")
+	if len(parts) > 2 {
+		return fmt.Errorf("invalid range %s", *rangefmt)
+	} else if len(parts) < 2 {
+		n, err := strconv.Atoi(*rangefmt)
+		if err != nil {
+			return err
+		}
+		maxdepth = n
+		mindepth = 0
+		return nil
+	}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			if part == "" {
+				n = -1
+			} else {
 				return err
 			}
-			return nil
 		}
-		if len(parts) > 2 {
-			return fmt.Errorf("invalid range %s", r)
-		}
-		for i, part := range parts {
-			n, err := strconv.Atoi(part)
-			if err != nil {
-				if part == "" {
-					n = -1
-				} else {
-					return err
-				}
-			}
-			if i == 0 {
-				mindepth = n
-			} else {
-				maxdepth = n
-			}
+		if i == 0 {
+			mindepth = n
+		} else {
+			maxdepth = n
 		}
 	}
 	return nil
 }
 
-func printPath(path string, info fs.FileInfo) {
-	if cmd != "" {
-		runCmd(path)
-		return
-	}
+func printPath(path string, fi fs.FileInfo) error {
 	for i, r := range *statfmt {
 		switch r {
 		case 'U', 'G', 'M', 'a':
-			stat, ok := info.Sys().(*syscall.Stat_t)
+			stat, ok := fi.Sys().(*syscall.Stat_t)
 			if !ok {
 				continue
 			}
@@ -157,15 +145,15 @@ func printPath(path string, info fs.FileInfo) {
 				fmt.Print(time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec)).Unix())
 			}
 		case 'm':
-			fmt.Print(info.ModTime().Unix())
+			fmt.Print(fi.ModTime().Unix())
 		case 'n':
-			fmt.Print(info.Name())
+			fmt.Print(fi.Name())
 		case 's':
-			fmt.Print(info.Size())
+			fmt.Print(fi.Size())
 		case 'p':
 			fmt.Print(path)
 		case 'x':
-			fmt.Print(info.Mode().Perm().String())
+			fmt.Print(fi.Mode().Perm().String())
 		default:
 			fmt.Printf("%c", r)
 		}
@@ -174,14 +162,15 @@ func printPath(path string, info fs.FileInfo) {
 		}
 	}
 	fmt.Print("\n")
+	return nil
 }
 
-func runCmd(path string) {
+func runCmd(args, path string) error {
 	var sb strings.Builder
-	for i, r := range cmd {
+	for i, r := range args {
 		switch r {
 		case '%':
-			if i >= 1 && cmd[i-1] != '\\' {
+			if i >= 1 && args[i-1] != '\\' {
 				sb.WriteString(path)
 				continue
 			}
@@ -190,10 +179,9 @@ func runCmd(path string) {
 			sb.WriteRune(r)
 		}
 	}
-	output, err := exec.Command("/bin/sh", "-c", strings.TrimPrefix(sb.String(), "!")).Output()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
-	fmt.Print(string(output))
+	cmd := exec.Command("/bin/sh", "-c", sb.String())
+	cmd.Stdout = os.Stdout
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
