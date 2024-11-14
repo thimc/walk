@@ -55,6 +55,7 @@ func main() {
 		args = []string{"."}
 	}
 	for _, arg := range args {
+		arg = filepath.Clean(arg) + string(os.PathSeparator)
 		rootdepth := strings.Count(arg, string(os.PathSeparator))
 		if err := filepath.Walk(arg, func(path string, fi fs.FileInfo, err error) error {
 			if path == "." || path == ".." || !fi.IsDir() && *isdirectory || fi.IsDir() && *isfile {
