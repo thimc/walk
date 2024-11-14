@@ -55,6 +55,7 @@ func main() {
 		args = []string{"."}
 	}
 	for _, arg := range args {
+		rootdepth := strings.Count(arg, string(os.PathSeparator))
 		if err := filepath.Walk(arg, func(path string, fi fs.FileInfo, err error) error {
 			if path == "." || path == ".." || !fi.IsDir() && *isdirectory || fi.IsDir() && *isfile {
 				return nil
@@ -67,15 +68,18 @@ func main() {
 			if maxd < mind {
 				maxd = mind
 			}
-			depth := strings.Count(path, string(os.PathSeparator)) + 1
+			depth := strings.Count(path, string(os.PathSeparator)) + 1 - rootdepth
 			if mind < 0 {
 				mind = depth
 			}
 			if maxd < 0 {
 				maxd = depth
 			}
-			if depth > maxd || depth < mind {
+			if depth < mind {
 				return nil
+			}
+			if depth > maxd {
+				return fs.SkipDir
 			}
 			if cmd != "" {
 				return runCmd(cmd, path)
