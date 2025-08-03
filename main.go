@@ -22,9 +22,10 @@ var (
 	rangefmt    = flag.String("n", "", "Sets the inclusive range for depth filtering.\nThe expected format is \"min,max\" and both are optional.\nAn argument of n with no comma is equivalent to 0,n.")
 	statfmt     = flag.String("e", "p", "Specifies the output format.\nThe attributes are automatically separated with a space.\nThe following characters are accepted:\nU\tOwner name\nG\tGroup name\nM\tname of the last user to modify the file\na\tlast access time\nm\tlast modification time\nn\tfinal path element (name)\np\tpath\ns\tsize (bytes)\nx\tpermissions")
 
-	cmd      string
-	mindepth = -1
-	maxdepth = -1
+	cmd       string
+	mindepth  = -1
+	maxdepth  = -1
+	rootdepth int
 )
 
 func usage() {
@@ -60,52 +61,53 @@ func main() {
 		*isfile = true
 	}
 	for _, arg := range args {
-		rootdepth := strings.Count(arg, string(os.PathSeparator))
-		nomatches := true
-		if err := filepath.Walk(filepath.Clean(arg), func(path string, fi fs.FileInfo, err error) error {
-			if path == "." || path == ".." {
-				return nil
-			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s\n", err)
-				return nil
-			}
-			mind, maxd := mindepth, maxdepth
-			if maxd < mind {
-				maxd = mind
-			}
-			depth := strings.Count(path, string(os.PathSeparator)) - rootdepth
-			if fi.Mode().IsDir() && !*isdirectory || !fi.Mode().IsDir() && !*isfile {
-				return nil
-			}
-			if mind < 0 {
-				mind = depth
-			}
-			if maxd < 0 {
-				maxd = depth
-			}
-			if depth < mind {
-				return nil
-			}
-			if depth > maxd {
-				return fs.SkipDir
-			}
-			nomatches = false
-			if cmd != "" {
-				return runCmd(cmd, path)
-			}
-			return printPath(path, fi)
-		}); err != nil {
+		rootdepth = strings.Count(arg, string(os.PathSeparator))
+		if err := filepath.Walk(arg, walk); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if nomatches {
-			fi, err := os.Stat(arg)
-			if err == nil {
-				printPath(arg, fi)
-			}
-		}
 	}
+}
+
+func walk(path string, fi fs.FileInfo, err error) error {
+	path = filepath.Clean(path)
+	if path == "." || path == ".." {
+		return nil
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return nil
+	}
+	mind, maxd := mindepth, maxdepth
+	if maxd < mind {
+		maxd = mind
+	}
+	depth := strings.Count(path, string(os.PathSeparator)) - rootdepth
+	if fi.Mode()&os.ModeSymlink != 0 {
+		resolved, err := os.Readlink(path)
+		if err != nil {
+			return err
+		}
+		return filepath.Walk(resolved, walk)
+	} else if fi.Mode().IsDir() && !*isdirectory || !fi.Mode().IsDir() && !*isfile {
+		return nil
+	}
+	if mind < 0 {
+		mind = depth
+	}
+	if maxd < 0 {
+		maxd = depth
+	}
+	if depth < mind {
+		return nil
+	}
+	if depth > maxd {
+		return fs.SkipDir
+	}
+	if cmd != "" {
+		return runCmd(cmd, path)
+	}
+	return printPath(path, fi)
 }
 
 func parseRange() error {
@@ -178,6 +180,8 @@ func printPath(path string, fi fs.FileInfo) error {
 			fmt.Print(path)
 		case 'x':
 			fmt.Print(fi.Mode().Perm().String())
+		case 'd':
+			fmt.Print(strings.Count(path, string(os.PathSeparator)))
 		default:
 			fmt.Printf("%c", r)
 		}
